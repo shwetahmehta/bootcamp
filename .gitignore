@@ -1,6 +1,7 @@
 #Other
 .DS_Store
 */.DS_Store
+.git
 
 
 # Byte-compiled / optimized / DLL files
