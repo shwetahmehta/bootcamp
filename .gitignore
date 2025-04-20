@@ -3,6 +3,7 @@
 */.DS_Store
 .git
 **/venv/
+venv/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

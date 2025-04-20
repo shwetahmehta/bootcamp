@@ -44,7 +44,8 @@ Write a SQL query to produce a list of the names of the facilities that do. */
 
 SELECT 
     name AS name_of_facilities_w_memberfees
-FROM Facilities
+FROM 
+    country_club.Facilities
 WHERE 
     membercost > 0
 ORDER BY 
@@ -55,7 +56,8 @@ ORDER BY
 
 SELECT 
     COUNT(*) AS cnt_of_free_facilities
-FROM Facilities
+FROM 
+    country_club.Facilities
 WHERE 
     membercost = 0;
 
@@ -70,7 +72,8 @@ SELECT
     name as facility_name, 
     membercost as member_cost,
     monthlymaintenance as monthly_maintenance
-FROM Facilities
+FROM 
+    country_club.Facilities
 WHERE 
     membercost > 0                                      -- Facilities which charge member fees
     AND (membercost/ monthlymaintenance * 1.0) < 0.2    -- Facilities where member fees are less than 205 of monthly maintenance
@@ -82,7 +85,8 @@ Try writing the query without using the OR operator. */
 
 SELECT 
     *
-FROM Facilities
+FROM 
+    country_club.Facilities
 WHERE 
     facid IN (1, 5)
 ;
@@ -94,10 +98,17 @@ more than $100. Return the name and monthly maintenance of the facilities
 in question. */
 
 SELECT 
-	name AS facility_name,
-    monthlymaintenance AS monthly_maintenance
-FROM Facilities
-ORDER BY 2
+    name AS facility_name, 
+    monthlymaintenance AS monthly_maintenance,
+    CASE
+        WHEN monthlymaintenance > 100 THEN 'expensive'
+        ELSE 'cheap'
+    END AS monthly_maintenance_category
+FROM 
+    country_club.Facilities
+ORDER BY 
+    monthly_maintenance DESC, 
+    facility_name ASC
 ;
 
 
@@ -107,12 +118,12 @@ who signed up. Try not to use the LIMIT clause for your solution. */
 SELECT 
 	firstname AS first_name, 
     surname AS last_name
-FROM Members
+FROM country_club.Members
 WHERE 
     -- Get the row with the latest joindate
 	joindate = (SELECT 
                 	MAX(joindate) 
-                FROM Members)
+                FROM country_club.Members)
 ;
 
 
@@ -122,20 +133,22 @@ formatted as a single column. Ensure no duplicate data, and order by
 the member name. */
 
 SELECT DISTINCT
-	CONCAT(Members.firstname, ' ', Members.surname) AS member_name,
+    CONCAT_WS( ' ', Members.firstname, Members.surname) AS member_name
     Facilities.name	AS facility_name
     
-FROM Bookings
-	INNER JOIN Facilities ON Facilities.facid = Bookings.facid
-    INNER JOIN Members ON Members.memid = Bookings.memid
+FROM country_club.Bookings
+	INNER JOIN country_club.Facilities ON Facilities.facid = Bookings.facid
+    INNER JOIN country_club.Members ON Members.memid = Bookings.memid
     
 WHERE 
 	Facilities.name LIKE 'Tennis Court%'
     
 ORDER BY
-	1
+	1, 2
 ;
 
+Note: Tried to use CONCAT(Members.firstname, ' ', Members.surname) which should have worked but 
+kept getting an error.
 
 /* Q8: Produce a list of bookings on the day of 2012-09-14 which
 will cost the member (or guest) more than $30. Remember that guests have
@@ -148,16 +161,16 @@ SELECT
 	Facilities.name AS facility_name,
     CASE
     	WHEN Members.memid = 0 THEN Members.firstname
-        ELSE CONCAT(Members.firstname, ' ', Members.surname)
+        ELSE CONCAT_WS(' ', Members.firstname, Members.surname)
     END AS member_name,
     (CASE Members.memid
     	 WHEN 0 THEN Facilities.guestcost
          ELSE Facilities.membercost
     END) * Bookings.slots	AS total_cost
    
-FROM Bookings
-	INNER JOIN Facilities ON Facilities.facid = Bookings.facid
-    INNER JOIN Members ON Members.memid = Bookings.memid
+FROM country_club.Bookings
+	INNER JOIN country_club.Facilities ON Facilities.facid = Bookings.facid
+    INNER JOIN country_club.Members ON Members.memid = Bookings.memid
     
 WHERE
 	-- List of bookings on 2012-09-14
@@ -187,7 +200,7 @@ FROM
             Facilities.name AS facility_name,
             CASE
                 WHEN Members.memid = 0 THEN Members.firstname
-                ELSE CONCAT(Members.firstname, ' ', Members.surname)
+                ELSE CONCAT_WS(' ', Members.firstname, Members.surname)
             END AS member_name,
             (CASE Members.memid
                  WHEN 0 THEN Facilities.guestcost
@@ -207,7 +220,8 @@ WHERE
     -- Cost of booking * slots is more than $30 for either the member or guest
     subquery_total_cost.total_cost > 30
         
-ORDER BY 3 DESC
+ORDER BY 
+    3 DESC
 ;
 
 
@@ -216,16 +230,126 @@ ORDER BY 3 DESC
 Export the country club data from PHPMyAdmin, and connect to a local SQLite instance from Jupyter notebook 
 for the following questions.  
 
+First I had to create a user defined function, before I could answer questions.
+
+# Create a function to run user specified queries on the database
+def _execute_query(query, DB_NAME=SQLITE_DB_NAME):
+    
+    # Connect to the database
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    # Execute the query and load the results into a Pandas DataFrame
+    df = pd.read_sql_query(query, conn)
+    
+    # Print the DataFrame
+    # print(df)
+    
+    conn.close()
+
+    return df
+
 QUESTIONS:
+
 /* Q10: Produce a list of facilities with a total revenue less than 1000.
 The output of facility name and total revenue, sorted by revenue. Remember
 that there's a different cost for guests and members! */
 
+query_10_solution_i = """
+  SELECT
+      f.name AS facility_name,
+      SUM((CASE 
+          WHEN m.firstname = 'GUEST' THEN f.guestcost
+          ELSE f.membercost
+          END) * b.slots) AS facility_revenue
+
+  FROM Bookings b
+      INNER JOIN Facilities f
+          ON b.facid = f.facid
+      INNER JOIN Members m
+          ON m.memid = b.memid
+
+  GROUP BY 
+      f.name
+
+  HAVING 
+      facility_revenue < 1000
+
+  ORDER BY
+      2 DESC,
+      1 ASC
+  ;
+  """
+_execute_query(query_10_solution_i)
+
 /* Q11: Produce a report of members and who recommended them in alphabetic surname,firstname order */
+
+query_11 = """
+  SELECT
+    m1.surname || ' ' || m1.firstname AS member_name,
+    m2.surname || ' ' || m2.firstname AS recommender_name
+  
+  FROM Members m1
+    LEFT JOIN Members m2 ON m1.recommendedby = m2.memid
+    
+  WHERE
+    m1.firstname <> 'GUEST'
+  
+  ORDER BY 1, 2
+  ; """
+
+_execute_query(query_11)
+
 
 
 /* Q12: Find the facilities with their usage by member, but not guests */
 
+query_12 = """
+  SELECT
+      f.name AS facility_name,
+      SUM(b.slots) AS facility_usage_in_slots,
+      SUM(b.slots) * 0.5 AS facility_usage_in_hours
+
+  FROM Bookings b
+      INNER JOIN Facilities f
+          ON b.facid = f.facid
+
+  WHERE
+    b.memid <> (SELECT memid FROM Members WHERE firstname = 'GUEST')
+
+  GROUP BY 
+      f.name
+
+  ORDER BY
+      2 DESC,
+      1 ASC
+  ;
+  """
+
+_execute_query(query_12)
+
+
 
 /* Q13: Find the facilities usage by month, but not guests */
+
+query_13 = """
+  SELECT
+    strftime('%Y-%m', b.starttime) AS year_month,
+    SUM(b.slots) AS facility_usage_in_slots,
+    SUM(b.slots) * 0.5 AS facility_usage_in_hours
+
+  FROM Bookings b
+
+  WHERE
+    b.memid <> (SELECT memid FROM Members WHERE firstname = 'GUEST')
+
+  GROUP BY 
+      1
+
+  ORDER BY
+      1 ASC
+  ;
+"""
+
+_execute_query(query_13)
 
